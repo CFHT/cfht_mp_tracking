@@ -5,7 +5,31 @@ import sys
 import copy
 from astropy.coordinates import SkyCoord
 from astropy import units
-import operator
+import logging
+
+# These are the exposure times set in PH2 on CFHT (or must be) so that we get the correct ones.
+# First exposure time is I1, then I2 etc.
+# Besure these exposure times match whats in the phase 2.
+IC_exptimes = [40, 80, 120, 160, 200, 240, 300, 340, 380, 420, 440, 480, 500]
+
+def exposure_time_index(mag):
+    """
+    Compute the exposure time required, in seconds, scaling off a 300s exposure needed for a 24.5 mag source.
+
+    Mimimum exposure time is 40s (CFHT Overhead)
+    :return: float
+    """
+    cuts = numpy.array(IC_exptimes)
+    exact_exptime = min(499, max(40, 300.0 / ((10 ** ((24.5 - mag) / 2.5)) ** 2)))
+    return len(cuts) - (exact_exptime < cuts).sum()
+
+
+def exposure_time(mag):
+    return IC_exptimes[exposure_time_index(mag)]
+
+
+def instrument_configuration_identifier(mag):
+    return "I{}".format(exposure_time_index(mag)+1)
 
 
 class Program(object):
@@ -30,6 +54,10 @@ class Program(object):
 class Target(object):
     def __init__(self, filename=None):
         self.config = json.load(open(filename))
+
+    @property
+    def name(self):
+        return self.config["name"]
 
     @property
     def token(self):
@@ -72,73 +100,80 @@ if __name__ == "__main__":
     parser.add_argument('runid')
     parser.add_argument('qrunid')
     parser.add_argument('targets', nargs='+')
+    parser.add_argument('--verbose', help="Verbose message reporting.", action="store_true", default=False)
+    parser.add_argument('--debug', help="Provide debuging information.", action="store_true", default=False)
     args = parser.parse_args()
 
-    # Break the targets into OBs based on their max mag of source in pointing.
-    cuts = numpy.array([23.0, 23.5, 24.0, 24.5, 25.0, 25.5, 26.0, 30.0])
-    IC_exptimes = [300, 50,  100,  200,  300,  400,  500,  600, 700]
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    elif args.verbose:
+        logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.ERROR)
 
-    program = Program(args.runid)
+    program = Program(args.runid, pi_login="kavelaars")
     ob_tokens = []
     mags = {}
     ob_coordinate = {}
     for filename in args.targets:
         target = Target(filename)
-        print filename, target
+        logging.info("Programming: {} V:{}".format(target.name, target.mag))
         try:
             mag = target.mag
         except:
-            continue
+            mag = 25.0
         program.add_target(target.config)
         ob_token = "OB-{}-{}".format(args.qrunid, target.token)
         ob = ObservingBlock(ob_token, target.token)
-        idx = 1
+        idx = instrument_configuration_identifier(mag)
         ob.config["instrument_config_identifiers"] = [{"server_token": "I{}".format(idx)}]
         program.add_observing_block(ob.config)
         ob_tokens.append(ob_token)
-        mags[ob_token] = target.mag
+        mags[ob_token] = mag
         ob_coordinate[ob_token] = target.coordinate
 
+    # Order the tokens by RA of the target.
     sf = lambda x, y: cmp(x.ra, y.ra)
     order_tokens = sorted(ob_coordinate, cmp=sf, key=ob_coordinate.get)
+
+    # Keep track of total observing time, which OGs have been built and which OBs are in an OG.
     total_itime = 0
     ogs = {}
     scheduled = {}
+
+    # start the OG index at 1.
     og_idx = 0
-    #if True:
     while len(scheduled) < len(ob_tokens):
-        og_idx += 70
-        og_token = "OG_{}_{}_{}".format(args.runid, args.qrunid, og_idx)
-        sys.stdout.write("{}: ".format(og_token))
-        og = ObservingGroup(og_token)
+        og_idx += 1
         og_coord = None
         og_itime = 0
+        repeat = 0
+        og_token = "OG_{}_{}_{}_{}".format(args.runid, args.qrunid, og_idx, repeat)
+        og = ObservingGroup(og_token)
+
         for ob_token in order_tokens:
             if ob_token not in scheduled:
                 if og_coord is None:
                     og_coord = ob_coordinate[ob_token]
-                if ob_coordinate[ob_token].separation(og_coord) > 30 * units.degree:
+                if ob_coordinate[ob_token].separation(og_coord) > 10 * units.degree:
+                    # Skip over targets that are more that 10 degrees away.
+                    # They get their own OG.
                     continue
                 og.add_ob(ob_token)
                 scheduled[ob_token] = True
-                sys.stdout.write("{} ".format(ob_token))
-                sys.stdout.flush()
-                #idx = (mags[ob_token] > cuts).sum()
-                idx = 1
-                print ob_token, mags[ob_token], idx + 4
-                og_itime += IC_exptimes[idx] + 40
+                og_itime += exposure_time(mags[ob_token]) + 40
                 if og_itime > 3000.0:
                     break
                 break
+
         total_itime += og_itime
-        sys.stdout.write(" {}s \n".format(og_itime))
+        sys.stdout.write("OG {} is {}s in duration.\n".format(og_token, og_itime))
         program.add_observing_group(og.config)
-        nrepeats = 2
+        nrepeats = 2  # do each OG twice, for tracking.
         for repeat in range(nrepeats):
             total_itime += og_itime
-            og_token = "OG_{}_{}_{}".format(args.runid, args.qrunid, og_idx)
+            og_token = "OG_{}_{}_{}_{}".format(args.runid, args.qrunid, og_idx, repeat+1)
             og = copy.deepcopy(og)
             og.config["identifier"]["client_token"] = og_token
             program.add_observing_group(og.config)
-    #print "Total I-Time: {} hrs".format(total_itime/3600.)
-    json.dump(program.config, open('program.json', 'w'), indent=4, sort_keys=True)
+
+    json.dump(program.config, open('PH2_{}_{}.json'.format(args.runid, args.qrunid), 'w'), indent=4, sort_keys=True)
