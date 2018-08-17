@@ -26,11 +26,11 @@ def build_ephem_files(target_name, start_time, stop_time, step_size=None, observ
     fb = ephem.FixedBody()
 
     et = EphemTarget(target_name.replace(" ", "_"), ephem_format=ephem_format, runid=runid)
-    body = horizons.Body(target_name.replace("_", " "), start_time=start_time, stop_time=stop_time, step_size=step_size)
+    body = horizons.Body(target_name.replace("_", " "), start_time=start_time, stop_time=stop_time,
+                         step_size=step_size, center='568')
     current_time = start_time
     body.predict(current_time)
     while current_time < stop_time:
-        print current_time
         target_up = False
         observatory.date = current_time.iso.replace('-', '/')
         observatory.horizon = math.radians(-7)
@@ -63,9 +63,8 @@ def build_ephem_files(target_name, start_time, stop_time, step_size=None, observ
 
         if target_up and sun_down:
             coordinate = deepcopy(body.coordinate)
-            coordinate.mag = fb.mag
+            coordinate.mag = body.mag
             coordinate.obstime = current_time
-            # print current_time, sun_set, fb_rise_time, fb_set_time, sun_rise, "adding"
             et.append(coordinate)
         current_time += step_size
 
