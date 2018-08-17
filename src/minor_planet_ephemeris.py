@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from ossos.ephem_target import EphemTarget
 from astropy.time import Time
 from astropy import units
