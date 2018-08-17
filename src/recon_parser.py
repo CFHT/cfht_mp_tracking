@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 Parse the TNORecon tables to determine which sources should be scheduled at CFHT.
 """
@@ -265,7 +266,9 @@ def parse_recon_table(url, start_time, end_time, orbit_classes, min_uncertainty)
             name = '{}{} {}'.format(century, row[OBJ_ID][0:2], row[OBJ_ID][2:])
         logging.info("Doing object {} from row: {}".format(name, count))
 
-        o = horizons.Body(name, start_time=start_time, stop_time=end_time, center='@568')
+        # we reload the module each time as this starts a new connection to the service, otherwise the service throttles
+        reload(horizons)
+        o = horizons.Body(name, start_time=start_time, stop_time=end_time, center='568')
         o.predict(sun_set_time)
         logging.debug("Getting coordinates from Horizons.")
         target._ra = o.coordinate.ra.radian
@@ -299,6 +302,9 @@ def parse_recon_table(url, start_time, end_time, orbit_classes, min_uncertainty)
             else:
                 end = sun_rise_time
 
+        if end is None or start is None:
+            logging.info("Target {} is never up.\n".format(name))
+            continue
         duration = (end - start).to(units.hour)
         if duration < MINIMUM_UP_TIME:
             logging.info("Skipping traget {}:  only up for {} hours ".format(name, duration))
