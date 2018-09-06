@@ -5,6 +5,14 @@ from xml.dom import minidom
 import xml
 from astropy.coordinates import SkyCoord
 
+try:
+    from google.protobuf import json_format
+    from cfhtapi.observing.persistence_pb2 import TargetData as Target
+    api_support = True
+except ImportError:
+    api_support = False
+
+
 COLUMN_SEPARATOR = "|"
 
 
@@ -31,7 +39,7 @@ class EphemTarget(object):
               "DEC_J2000": {"attr": {"datatype": "A", "width": "11", "format": "DEd:DEm:DEs", "unit": "deg"},
                             "DESCRIPTION": "Declination of target"}}
 
-    def __init__(self, name, column_separator=COLUMN_SEPARATOR, format='CFHT ET', runid='16BP06')
+    def __init__(self, name, column_separator=COLUMN_SEPARATOR, file_format='CFHT ET', runid='16BP06'):
         """
         create an ephmeris target, either with a 'orbfit' object or some mean rate of motion.
 
@@ -39,7 +47,7 @@ class EphemTarget(object):
         """
 
         self.name = str(name).replace(" ","_")
-        self.format = format
+        self.format = file_format
         self.doc = create_astrores_document()
         self.column_separator = column_separator
         self.coordinates = []
@@ -171,6 +179,22 @@ class EphemTarget(object):
         json.dump(target, f_handle)
         return
 
+    def cfht_api_v2_writer(self, f_handle):
+        if not api_support:
+            raise Exception("The cfht sdk is not available, can not use the cfht_api_v2_writer strategy")
+
+        target = Target()
+        target.name = self.name
+        # Pick the first magnitude because CFHT doesn't support variable magnitude for ephemeris
+        target.magnitude.magnitude = self.coordinates[0].mag
+        for coordinate in self.coordinates:
+            ephemeris = target.moving_target.ephemeris_point.add()
+            ephemeris.mjd = coordinate.obstime.mjd
+            ephemeris.coordinate.ra = coordinate.ra.degree
+            ephemeris.coordinate.dec = coordinate.dec.degree
+
+        f_handle.write(json_format.MessageToJson(target, including_default_value_fields=True))
+
     def gemini_writer(self, f_handle):
         """
         Write out a GEMINI formated OT ephemeris.  This is just a hack of SSD Horizons output.
@@ -205,10 +229,12 @@ class EphemTarget(object):
     def writer(self, f_handle):
             if self.format == 'CFHT ET':
                 self.cfht_writer(f_handle)
-            if self.format == "CFHT API":
+            if self.format == "CFHT API V1":
                 self.cfht_api_writer(f_handle)
             elif self.format == 'GEMINI ET':
                 self.gemini_writer(f_handle)
+            elif self.format == 'CFHT API V2':
+                self.cfht_api_v2_writer(f_handle)
             else:
                 raise ValueError("unkown ET Format")
 

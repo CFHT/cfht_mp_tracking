@@ -15,13 +15,8 @@ This package contains three tools:
 `recon_parser.py "2018-09-01 00:00:00" "2019-03-31 00:00:00" `
 
 - Compute a CFHT ephemeris for all the target(s)
-`./minor_planet_ephemeris.py "2018-09-01 00:00:00" "2019-10-01 00:00:00" "2013 UO17" --runid 18BC11`
+`./minor_planet_ephemeris.py "2018-09-01 00:00:00" "2019-10-01 00:00:00" "2013 UO17"`
 
-- Build a PH2 submission file using those ET files as input.  List ET files for all the targets of interest on the comamand line.
-`./ph2.py 18BC11 18BQ03 2013_UO17.txt`
-
-
-In these commands the RUNID and QRUNID values are used to help ensure uniqueness for the PH2 upload.
-
-If you do more than on PH2 upload for a program, then there is likley going to be errors.
+- Upload the observation to CFHT using those ET files as input. List ET files for all the targets of interest on the comamand line.
+`./create_cfht_observations.py 18BC11 18BQ03 2013_UO17.txt --bearer-token <bearer_token_from_website>`
 

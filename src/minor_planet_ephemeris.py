@@ -1,13 +1,16 @@
 #!/usr/bin/env python
 
-from ossos.ephem_target import EphemTarget
-from astropy.time import Time
-from astropy import units
-from mp_ephem import horizons
-import ephem
+import argparse
+import logging
 import math
 from copy import deepcopy
-import argparse
+
+import ephem
+from astropy import units
+from astropy.time import Time
+from mp_ephem import horizons
+
+from ephem_target import EphemTarget
 
 _cfht = ephem.Observer()
 _cfht.lat = 0.344
@@ -27,7 +30,7 @@ def build_ephem_files(target_name, start_time, stop_time, step_size=None, observ
     sun = ephem.Sun()
     fb = ephem.FixedBody()
 
-    et = EphemTarget(target_name.replace(" ", "_"), ephem_format=ephem_format, runid=runid)
+    et = EphemTarget(target_name.replace(" ", "_"), file_format=ephem_format, runid=runid)
     body = horizons.Body(target_name.replace("_", " "), start_time=start_time, stop_time=stop_time,
                          step_size=step_size, center='568')
     current_time = start_time
@@ -105,12 +108,20 @@ if __name__ == '__main__':
     parser.add_argument('start_time', help="Date at start of dark run.")
     parser.add_argument('end_time', help="Date at end of dark run.")
     parser.add_argument('target_names', nargs="+", help="Names of targets to build ephemeris files for.")
-    parser.add_argument('--runid', default='17AC99')
-    parser.add_argument('--ephem-format', default='CFHT API')
+    parser.add_argument('--runid', default=None, help="must be specified for other formats besides CFHT API v2")
+    parser.add_argument('--ephem-format', default='CFHT API V2')
     parser.add_argument('--step-size', help="size of time step for ephemeris.", default=300 * units.minute)
     parser.add_argument('--observatory', default=_cfht)
+    parser.add_argument('--verbose', help="Verbose message reporting.", action="store_true", default=False)
+    parser.add_argument('--debug', help="Provide debuging information.", action="store_true", default=False)
 
     args = parser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    elif args.verbose:
+        logging.basicConfig(level=logging.INFO)
+
     if not isinstance(args.step_size, units.Quantity): 
        args.step_size *= units.minute
     main(args.target_names, args.start_time, args.end_time, args.step_size, args.observatory, args.ephem_format,
